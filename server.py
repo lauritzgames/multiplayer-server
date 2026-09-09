@@ -39,7 +39,16 @@ def remove_inactive_players():
 
     for name in list(players):
         if current_time - players[name]["last_seen"] >= PLAYER_TIMEOUT:
+
             del players[name]
+
+            emit(
+                "player_left",
+                {
+                    "name": name
+                },
+                broadcast=True
+            )
 
 
 @socketio.on("join")
@@ -65,8 +74,7 @@ def join_player(data):
 
     emit(
         "players",
-        list(players.values()),
-        broadcast=True
+        list(players.values())
     )
 
 
@@ -90,23 +98,20 @@ def change_player_position(data):
     players[name]["last_seen"] = time.time()
 
     emit(
-        "players",
-        list(players.values()),
-        broadcast=True
+        "player_moved",
+        {
+            "name": name,
+            "x": players[name]["x"],
+            "y": players[name]["y"]
+        },
+        broadcast=True,
+        include_self=False
     )
 
 
 @socketio.on("disconnect")
 def disconnect():
     pass
-
-
-def save_players():
-    server_data = {
-        "players": list(players.values())
-    }
-
-    save_server(server_data)
 
 
 @flask_app.route("/")
