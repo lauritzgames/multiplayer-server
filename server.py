@@ -1,15 +1,23 @@
 import flask
+from flask_socketio import SocketIO, emit
 import json
 import os
 import time
 
 flask_app = flask.Flask(__name__)
 
+socketio = SocketIO(
+    flask_app,
+    cors_allowed_origins="*"
+)
+
 SERVERS_FILE = "multiplayer/servers.json"
 
-PORT = int(os.getenv("PORT", "5000"))
+PORT = int(os.getenv("PORT", "17829"))
 
 PLAYER_TIMEOUT = 20
+
+players = {}
 
 
 def load_server():
@@ -26,97 +34,99 @@ def save_server(data):
     os.replace(temp_file, SERVERS_FILE)
 
 
-def remove_inactive_players(server_data):
+def remove_inactive_players():
     current_time = time.time()
 
-    server_data["players"] = [
-        player
-        for player in server_data["players"]
-        if current_time - player["last_seen"] < PLAYER_TIMEOUT
-    ]
+    for name in list(players):
+        if current_time - players[name]["last_seen"] >= PLAYER_TIMEOUT:
+            del players[name]
+
+
+@socketio.on("join")
+def join_player(data):
+    name = data.get("name")
+
+    if not name:
+        return
+
+    remove_inactive_players()
+
+    if name in players:
+        players[name]["last_seen"] = time.time()
+
+    else:
+        players[name] = {
+            "name": name,
+            "score": 0,
+            "x": 400,
+            "y": 300,
+            "last_seen": time.time()
+        }
+
+    emit(
+        "players",
+        list(players.values()),
+        broadcast=True
+    )
+
+
+@socketio.on("position")
+def change_player_position(data):
+    name = data.get("name")
+
+    if name not in players:
+        return
+
+    players[name]["x"] = data.get(
+        "x",
+        players[name]["x"]
+    )
+
+    players[name]["y"] = data.get(
+        "y",
+        players[name]["y"]
+    )
+
+    players[name]["last_seen"] = time.time()
+
+    emit(
+        "players",
+        list(players.values()),
+        broadcast=True
+    )
+
+
+@socketio.on("disconnect")
+def disconnect():
+    pass
+
+
+def save_players():
+    server_data = {
+        "players": list(players.values())
+    }
+
+    save_server(server_data)
 
 
 @flask_app.route("/")
 def index():
-    server_data = load_server()
-
-    remove_inactive_players(server_data)
-    save_server(server_data)
-
-    return flask.jsonify(server_data)
-
-
-@flask_app.route("/player/<string:player_name>", methods=["POST"])
-def change_player_position(player_name):
-    server_data = load_server()
-
-    remove_inactive_players(server_data)
-
-    data = flask.request.get_json()
-
-    if data is None:
-        return flask.jsonify({
-            "error": "No JSON data provided"
-        }), 400
-
-    for player in server_data["players"]:
-        if player["name"] == player_name:
-
-            player["x"] = data.get("x", player["x"])
-            player["y"] = data.get("y", player["y"])
-
-            player["last_seen"] = time.time()
-
-            save_server(server_data)
-
-            return flask.jsonify({
-                "message": "Player updated successfully.",
-                "player": player
-            })
+    remove_inactive_players()
 
     return flask.jsonify({
-        "error": "Player not found"
-    }), 404
-
-
-@flask_app.route("/player/<string:player_name>/join", methods=["POST"])
-def join_player(player_name):
-    server_data = load_server()
-
-    remove_inactive_players(server_data)
-
-    for player in server_data["players"]:
-        if player["name"] == player_name:
-
-            player["last_seen"] = time.time()
-
-            save_server(server_data)
-
-            return flask.jsonify({
-                "message": "Player already exists.",
-                "player": player
-            })
-
-    player = {
-        "name": player_name,
-        "score": 0,
-        "x": 400,
-        "y": 300,
-        "last_seen": time.time()
-    }
-
-    server_data["players"].append(player)
-
-    save_server(server_data)
-
-    return flask.jsonify({
-        "message": "Player joined successfully.",
-        "player": player
+        "players": list(players.values())
     })
 
 
 if __name__ == "__main__":
-    flask_app.run(
+    server_data = load_server()
+
+    for player in server_data["players"]:
+        player["last_seen"] = time.time()
+        players[player["name"]] = player
+
+    socketio.run(
+        flask_app,
         host="0.0.0.0",
         port=PORT,
         debug=False
