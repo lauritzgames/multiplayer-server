@@ -1,9 +1,8 @@
 import flask
 from flask_socketio import SocketIO, emit
 from flask import request
-import json
-import os
 import time
+import os
 
 flask_app = flask.Flask(__name__)
 
@@ -13,27 +12,11 @@ socketio = SocketIO(
     async_mode="threading"
 )
 
-SERVERS_FILE = "multiplayer/servers.json"
-
 PORT = int(os.getenv("PORT", "17829"))
 
 PLAYER_TIMEOUT = 20
 
 players = {}
-
-
-def load_server():
-    with open(SERVERS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_server(data):
-    temp_file = SERVERS_FILE + ".tmp"
-
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
-
-    os.replace(temp_file, SERVERS_FILE)
 
 
 def remove_inactive_players():
@@ -108,7 +91,19 @@ def change_player_position(data):
 
 @socketio.on("disconnect")
 def disconnect():
-    pass
+
+    player_id = request.sid
+
+    if player_id in players:
+
+        del players[player_id]
+
+        socketio.emit(
+            "player_left",
+            {
+                "id": player_id
+            }
+        )
 
 
 @flask_app.route("/")
@@ -123,16 +118,10 @@ def index():
 
 if __name__ == "__main__":
 
-    server_data = load_server()
+    # Start with an empty server.
+    # Players exist only while connected.
 
-    for player in server_data["players"]:
-
-        player["last_seen"] = time.time()
-
-        player_id = player.get("id")
-
-        if player_id:
-            players[player_id] = player
+    players.clear()
 
     socketio.run(
         flask_app,
