@@ -129,5 +129,6 @@ if __name__ == "__main__":
         flask_app,
         host="0.0.0.0",
         port=PORT,
-        debug=False
+        debug=False,
+        allow_unsafe_werkzeug=True
     )
