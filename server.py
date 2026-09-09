@@ -9,7 +9,8 @@ flask_app = flask.Flask(__name__)
 
 socketio = SocketIO(
     flask_app,
-    cors_allowed_origins="*"
+    cors_allowed_origins="*",
+    async_mode="threading"
 )
 
 SERVERS_FILE = "multiplayer/servers.json"
@@ -38,23 +39,22 @@ def save_server(data):
 def remove_inactive_players():
     current_time = time.time()
 
-    for player_id in list(players):
-        if current_time - players[player_id]["last_seen"] >= PLAYER_TIMEOUT:
+    for player_id, player in list(players.items()):
+
+        if current_time - player["last_seen"] >= PLAYER_TIMEOUT:
 
             del players[player_id]
 
-            emit(
+            socketio.emit(
                 "player_left",
                 {
                     "id": player_id
-                },
-                broadcast=True
+                }
             )
 
 
 @socketio.on("join")
 def join_player(data):
-    remove_inactive_players()
 
     player_id = request.sid
 
@@ -74,41 +74,35 @@ def join_player(data):
         }
     )
 
-    emit(
+    socketio.emit(
         "players",
-        list(players.values()),
-        broadcast=True
+        list(players.values())
     )
 
 
 @socketio.on("position")
 def change_player_position(data):
+
     player_id = data.get("id")
 
-    if player_id not in players:
+    player = players.get(player_id)
+
+    if player is None:
         return
 
-    players[player_id]["x"] = data.get(
-        "x",
-        players[player_id]["x"]
-    )
+    player["x"] = data.get("x", player["x"])
+    player["y"] = data.get("y", player["y"])
+    player["last_seen"] = time.time()
 
-    players[player_id]["y"] = data.get(
-        "y",
-        players[player_id]["y"]
-    )
-
-    players[player_id]["last_seen"] = time.time()
-
-    emit(
+    socketio.emit(
         "player_moved",
         {
             "id": player_id,
-            "x": players[player_id]["x"],
-            "y": players[player_id]["y"]
+            "x": player["x"],
+            "y": player["y"],
+            "sent": data.get("sent")
         },
-        broadcast=True,
-        include_self=False
+        skip_sid=request.sid
     )
 
 
@@ -119,6 +113,7 @@ def disconnect():
 
 @flask_app.route("/")
 def index():
+
     remove_inactive_players()
 
     return flask.jsonify({
@@ -127,9 +122,11 @@ def index():
 
 
 if __name__ == "__main__":
+
     server_data = load_server()
 
     for player in server_data["players"]:
+
         player["last_seen"] = time.time()
 
         player_id = player.get("id")
