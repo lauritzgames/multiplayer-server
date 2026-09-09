@@ -1,5 +1,5 @@
 import flask
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, request
 import json
 import os
 import time
@@ -37,15 +37,15 @@ def save_server(data):
 def remove_inactive_players():
     current_time = time.time()
 
-    for name in list(players):
-        if current_time - players[name]["last_seen"] >= PLAYER_TIMEOUT:
+    for player_id in list(players):
+        if current_time - players[player_id]["last_seen"] >= PLAYER_TIMEOUT:
 
-            del players[name]
+            del players[player_id]
 
             emit(
                 "player_left",
                 {
-                    "name": name
+                    "id": player_id
                 },
                 broadcast=True
             )
@@ -53,56 +53,58 @@ def remove_inactive_players():
 
 @socketio.on("join")
 def join_player(data):
-    name = data.get("name")
-
-    if not name:
-        return
-
     remove_inactive_players()
 
-    if name in players:
-        players[name]["last_seen"] = time.time()
+    player_id = request.sid
 
-    else:
-        players[name] = {
-            "name": name,
-            "score": 0,
-            "x": 400,
-            "y": 300,
-            "last_seen": time.time()
+    players[player_id] = {
+        "id": player_id,
+        "name": data.get("name", "Player"),
+        "score": 0,
+        "x": 400,
+        "y": 300,
+        "last_seen": time.time()
+    }
+
+    emit(
+        "joined",
+        {
+            "id": player_id
         }
+    )
 
     emit(
         "players",
-        list(players.values())
+        list(players.values()),
+        broadcast=True
     )
 
 
 @socketio.on("position")
 def change_player_position(data):
-    name = data.get("name")
+    player_id = data.get("id")
 
-    if name not in players:
+    if player_id not in players:
         return
 
-    players[name]["x"] = data.get(
+    players[player_id]["x"] = data.get(
         "x",
-        players[name]["x"]
+        players[player_id]["x"]
     )
 
-    players[name]["y"] = data.get(
+    players[player_id]["y"] = data.get(
         "y",
-        players[name]["y"]
+        players[player_id]["y"]
     )
 
-    players[name]["last_seen"] = time.time()
+    players[player_id]["last_seen"] = time.time()
 
     emit(
         "player_moved",
         {
-            "name": name,
-            "x": players[name]["x"],
-            "y": players[name]["y"]
+            "id": player_id,
+            "x": players[player_id]["x"],
+            "y": players[player_id]["y"]
         },
         broadcast=True,
         include_self=False
@@ -128,7 +130,11 @@ if __name__ == "__main__":
 
     for player in server_data["players"]:
         player["last_seen"] = time.time()
-        players[player["name"]] = player
+
+        player_id = player.get("id")
+
+        if player_id:
+            players[player_id] = player
 
     socketio.run(
         flask_app,
