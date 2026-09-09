@@ -1,0 +1,14 @@
+services:
+  multiplayer-server:
+    build: .
+    container_name: multiplayer-server
+    restart: unless-stopped
+
+    ports:
+      - "${PORT:-5000}:5000"
+
+    environment:
+      PORT: 5000
+
+    volumes:
+      - ./multiplayer:/app/multiplayer
